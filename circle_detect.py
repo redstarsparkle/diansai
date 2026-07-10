@@ -1,32 +1,10 @@
 import cv2
-import time
 import numpy as np
-import Adafruit_PCA9685
 
 # ================= 通用参数 =================
 
 FRAME_WIDTH = 320
 FRAME_HEIGHT = 240
-CENTER_X = FRAME_WIDTH // 2   # 160
-CENTER_Y = FRAME_HEIGHT // 2  # 120
-
-# ================= 舵机初始化 =================
-
-servo_pwm = Adafruit_PCA9685.PCA9685(address=0x40, busnum=1)
-servo_pwm.set_pwm_freq(60)
-servo_pwm.set_pwm(5, 0, 350)  # 底座舵机
-servo_pwm.set_pwm(4, 0, 370)  # 倾斜舵机
-time.sleep(1)
-
-# ================= 舵机 PID 变量 =================
-
-pid_thisError_x = 0
-pid_lastError_x = 0
-pid_thisError_y = 0
-pid_lastError_y = 0
-
-pid_X_P = 300  # 初始角度
-pid_Y_P = 280
 
 # ================= 方法1：轮廓法参数 =================
 
@@ -63,45 +41,6 @@ cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
 
 # =================================================
-
-
-def Robot_servo(X_P, Y_P):
-    """驱动舵机到指定角度"""
-    servo_pwm.set_pwm(5, 0, 650 - X_P)
-    servo_pwm.set_pwm(4, 0, 650 - Y_P)
-
-
-def pid_control(target_x, target_y):
-    """基于目标圆心计算PID并更新舵机角度（参考 11 的逻辑）"""
-    global pid_thisError_x, pid_lastError_x
-    global pid_thisError_y, pid_lastError_y
-    global pid_X_P, pid_Y_P
-
-    # 误差 = 圆心 - 画面中心
-    pid_thisError_x = target_x - CENTER_X
-    pid_thisError_y = target_y - CENTER_Y
-
-    # PD控制：P=3, D=1
-    pwm_x = pid_thisError_x * 3 + 1 * (pid_thisError_x - pid_lastError_x)
-    pwm_y = pid_thisError_y * 3 + 1 * (pid_thisError_y - pid_lastError_y)
-
-    # 迭代误差
-    pid_lastError_x = pid_thisError_x
-    pid_lastError_y = pid_thisError_y
-
-    # 更新最终角度
-    pid_X_P = pid_X_P - int(pwm_x / 100)
-    pid_Y_P = pid_Y_P - int(pwm_y / 100)
-
-    # 限幅
-    if pid_X_P > 650:
-        pid_X_P = 650
-    if pid_X_P < 0:
-        pid_X_P = 0
-    if pid_Y_P > 650:
-        pid_Y_P = 650
-    if pid_Y_P < 0:
-        pid_Y_P = 0
 
 while True:
 
@@ -152,7 +91,7 @@ while True:
 
         circles_contour.append((cx, cy, radius))
 
-    # 聚类
+    # 圆心聚类
     groups = []
     for cx, cy, r in circles_contour:
         found = False
@@ -199,35 +138,6 @@ while True:
 
     right = frame.copy()
 
-    # ============================
-    # 决定跟踪目标：轮廓拟合优先 > 霍夫圆兜底
-    # ============================
-
-    track_cx = track_cy = track_r = None
-    track_source = ""  # "contour" or "hough"
-
-    # 优先：取聚类组中圈数最多的轮廓圆心
-    best_group = None
-    for g in groups:
-        if len(g["points"]) >= 2:
-            if best_group is None or len(g["points"]) > len(best_group["points"]):
-                best_group = g
-
-    if best_group is not None:
-        track_cx, track_cy = int(best_group["center"][0]), int(best_group["center"][1])
-        # 半径取组内平均值
-        avg_r = int(np.mean([p[2] for p in best_group["points"]]))
-        track_r = avg_r
-        track_source = "contour"
-    elif len(circles_contour) > 0:
-        # 没有成组，取第一个单圆
-        track_cx, track_cy, track_r = int(circles_contour[0][0]), int(circles_contour[0][1]), int(circles_contour[0][2])
-        track_source = "contour"
-
-    # ============================
-    # 霍夫圆检测（右图）
-    # ============================
-
     hough_circles = cv2.HoughCircles(
         gray, cv2.HOUGH_GRADIENT,
         dp=HOUGH_DP, minDist=HOUGH_MIN_DIST,
@@ -238,17 +148,9 @@ while True:
     if hough_circles is not None:
         hough_circles = np.round(hough_circles[0]).astype(int)
 
-        hough_best = hough_circles[0]  # 投票最高的霍夫圆
-
-        # 没有轮廓目标时，用霍夫圆兜底
-        if track_cx is None:
-            track_cx, track_cy, track_r = int(hough_best[0]), int(hough_best[1]), int(hough_best[2])
-            track_source = "hough"
-
-        # 画所有霍夫圆
         for i, (cx, cy, r) in enumerate(hough_circles):
-            color = (0, 255, 0) if i > 0 else (0, 255, 255)
-            cv2.circle(right, (cx, cy), r, color, 2)
+            # 绿色圆 + 红色圆心
+            cv2.circle(right, (cx, cy), r, (0, 255, 0), 2)
             cv2.circle(right, (cx, cy), 4, (0, 0, 255), -1)
             cv2.putText(right, f"#{i+1}({cx},{cy})", (cx + r + 5, cy),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 255), 1)
@@ -258,40 +160,6 @@ while True:
     else:
         cv2.putText(right, "[Hough] No circles found",
                     (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
-
-    # ============================
-    # 跟踪目标可视化 + PID
-    # ============================
-
-    if track_cx is not None:
-        # 画跟踪目标
-        track_color = (255, 0, 255) if track_source == "contour" else (0, 255, 255)  # 轮廓=品红, 霍夫=黄
-        cv2.circle(left, (track_cx, track_cy), track_r, track_color, 2)
-        cv2.circle(left, (track_cx, track_cy), 5, track_color, -1)
-        cv2.putText(left, f"Track[{track_source}]({track_cx},{track_cy})",
-                    (track_cx - 50, track_cy - track_r - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, track_color, 1)
-
-        # 在右图也标出跟踪目标
-        cv2.circle(right, (track_cx, track_cy), track_r, track_color, 2)
-        cv2.circle(right, (track_cx, track_cy), 5, track_color, -1)
-
-        # PID 舵机控制
-        pid_control(track_cx, track_cy)
-    else:
-        cv2.putText(left, "[No target]", (5, FRAME_HEIGHT // 2),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 1)
-
-    # 驱动舵机
-    Robot_servo(pid_X_P, pid_Y_P)
-
-    # ============================
-    # 画中心十字（两图都画）
-    # ============================
-
-    for img in (left, right):
-        cv2.line(img, (CENTER_X - 10, CENTER_Y), (CENTER_X + 10, CENTER_Y), (0, 255, 0), 1)
-        cv2.line(img, (CENTER_X, CENTER_Y - 10), (CENTER_X, CENTER_Y + 10), (0, 255, 0), 1)
 
     # ============================
     # 并排显示
@@ -308,11 +176,6 @@ while True:
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
     cv2.putText(comparison, "HoughCircles", (FRAME_WIDTH + 5, FRAME_HEIGHT - 8),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
-
-    # 舵机角度
-    cv2.putText(comparison, f"Servo X:{pid_X_P} Y:{pid_Y_P}",
-                (5, FRAME_HEIGHT - 22),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 255, 200), 1)
 
     cv2.imshow("Edges (Contour)", edges)
     cv2.imshow("Contour  vs  HoughCircles", comparison)
