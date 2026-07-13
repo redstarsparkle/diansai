@@ -71,6 +71,9 @@ def Robot_servo(X_P, Y_P):
     servo_pwm.set_pwm(4, 0, 650 - Y_P)
 
 
+# def 调大 Kp → 响应变快、但容易震荡和过冲
+#调大 Ki → 消除残余误差、但可能让系统变得迟钝或震荡
+#调大 Kd → 抑制震荡、但可能让响应变慢、对噪声敏感
 def pid_control(target_x, target_y):
     """基于目标圆心计算PID并更新舵机角度（参考 11 的逻辑）"""
     global pid_thisError_x, pid_lastError_x

@@ -5,6 +5,8 @@ import numpy as np
 
 FRAME_WIDTH = 320
 FRAME_HEIGHT = 240
+CENTER_X = FRAME_WIDTH // 2   # 160
+CENTER_Y = FRAME_HEIGHT // 2  # 120
 
 # ================= 方法1：轮廓法参数 =================
 
@@ -132,6 +134,18 @@ while True:
     cv2.putText(left, f"[Contour] Detected:{len(circles_contour)} Groups:{len(groups)}",
                 (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
 
+    # --- 选定跟踪目标（轮廓优先）---
+    track_cx = track_cy = None
+    best_group = None
+    for g in groups:
+        if len(g["points"]) >= 2:
+            if best_group is None or len(g["points"]) > len(best_group["points"]):
+                best_group = g
+    if best_group is not None:
+        track_cx, track_cy = int(best_group["center"][0]), int(best_group["center"][1])
+    elif len(circles_contour) > 0:
+        track_cx, track_cy = int(circles_contour[0][0]), int(circles_contour[0][1])
+
     # ============================
     # 方法2：霍夫圆检测（右图）
     # ============================
@@ -155,11 +169,42 @@ while True:
             cv2.putText(right, f"#{i+1}({cx},{cy})", (cx + r + 5, cy),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 255), 1)
 
+        # 轮廓没有目标时，用霍夫圆兜底
+        if track_cx is None and len(hough_circles) > 0:
+            track_cx, track_cy = int(hough_circles[0][0]), int(hough_circles[0][1])
+
         cv2.putText(right, f"[Hough] Detected: {len(hough_circles)}",
                     (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
     else:
         cv2.putText(right, "[Hough] No circles found",
                     (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
+
+    # ============================
+    # 误差显示
+    # ============================
+
+    if track_cx is not None:
+        error_x = track_cx - CENTER_X
+        error_y = track_cy - CENTER_Y
+        # 左图显示误差
+        cv2.putText(left, f"Err X:{error_x:+d} Y:{error_y:+d}",
+                    (5, FRAME_HEIGHT - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+        # 右图也显示误差
+        cv2.putText(right, f"Err X:{error_x:+d} Y:{error_y:+d}",
+                    (FRAME_WIDTH - 130, FRAME_HEIGHT - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+        # 画瞄准线（目标到中心）
+        cv2.line(left, (track_cx, track_cy), (CENTER_X, CENTER_Y), (0, 0, 255), 1)
+        cv2.line(right, (track_cx, track_cy), (CENTER_X, CENTER_Y), (0, 0, 255), 1)
+
+    # ============================
+    # 画中心十字（两图都画）
+    # ============================
+
+    for img in (left, right):
+        cv2.line(img, (CENTER_X - 10, CENTER_Y), (CENTER_X + 10, CENTER_Y), (0, 255, 0), 1)
+        cv2.line(img, (CENTER_X, CENTER_Y - 10), (CENTER_X, CENTER_Y + 10), (0, 255, 0), 1)
 
     # ============================
     # 并排显示

@@ -42,6 +42,7 @@ pid_lastError_y=100
 pid_x=0
 pid_y=0
 
+
 # 舵机的转动角度
 pid_Y_P = 280
 pid_X_P = 300           #转动角度
